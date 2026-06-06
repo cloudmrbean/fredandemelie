@@ -303,13 +303,13 @@ export default function Player() {
 
   return (
     <div
-      className="min-h-screen bg-black flex flex-col relative overflow-hidden"
+      className="h-dvh bg-black flex flex-col relative overflow-hidden"
       onMouseMove={showControls}
       onTouchStart={showControls}
     >
       <button
         onClick={() => navigate('/')}
-        className="absolute top-4 left-4 z-40 p-2 rounded-full bg-black/60 hover:bg-black/90 text-gray-400 hover:text-white transition-colors"
+        className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] left-4 z-40 p-2 rounded-full bg-black/60 hover:bg-black/90 text-gray-400 hover:text-white transition-colors"
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -317,7 +317,7 @@ export default function Player() {
       </button>
 
       {story && (
-        <div className="absolute top-4 inset-x-0 z-10 flex justify-center pointer-events-none">
+        <div className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] inset-x-0 z-10 flex justify-center pointer-events-none">
           <span className="bg-black/50 backdrop-blur-sm text-xs text-gray-400 px-3 py-1 rounded-full tracking-wide">
             {story.title}
           </span>
@@ -335,7 +335,7 @@ export default function Player() {
           onPlay={() => setPaused(false)}
           onPause={() => setPaused(true)}
           onEnded={() => setPhase(prev => (prev.type === 'base' ? { type: 'end' } : prev))}
-          className="w-full h-screen object-contain bg-black"
+          className="w-full h-full object-contain bg-black"
           style={{ display: showBranch ? 'none' : 'block' }}
         />
       )}
@@ -351,7 +351,7 @@ export default function Player() {
           onPlay={() => setPaused(false)}
           onPause={() => setPaused(true)}
           onEnded={onBranchEnded}
-          className="w-full h-screen object-contain bg-black"
+          className="w-full h-full object-contain bg-black"
         />
       )}
 
@@ -399,7 +399,7 @@ export default function Player() {
       {/* Bottom progress bar + volume controls */}
       {showControlBar && (
         <div
-          className={`absolute bottom-0 inset-x-0 z-40 px-4 pb-4 pt-12 bg-gradient-to-t from-black/85 via-black/40 to-transparent transition-opacity duration-300 ${
+          className={`absolute bottom-0 inset-x-0 z-40 px-4 pt-12 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-black/85 via-black/40 to-transparent transition-opacity duration-300 ${
             controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
@@ -790,7 +790,7 @@ function CornerRunes() {
 
 function EndScreen({ story, photoUrl, onReplay, onHome }: { story: Story | null; photoUrl: string | null; onReplay: () => void; onHome: () => void }) {
   return (
-    <div className="min-h-screen bg-void-950 flex items-center justify-center">
+    <div className="min-h-dvh bg-void-950 flex items-center justify-center py-8">
       <div className="text-center animate-fade-in px-6">
         {photoUrl && (
           <div className="mb-6 flex justify-center">
@@ -839,6 +839,6 @@ function EndScreen({ story, photoUrl, onReplay, onHome }: { story: Story | null;
 
 function FullScreen({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-void-950 flex items-center justify-center">{children}</div>
+    <div className="min-h-dvh bg-void-950 flex items-center justify-center">{children}</div>
   );
 }
