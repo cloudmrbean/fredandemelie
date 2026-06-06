@@ -66,8 +66,13 @@ export default function Creator() {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     setSaving(true);
     saveTimeoutRef.current = setTimeout(async () => {
-      await saveStory({ ...updated, updatedAt: Date.now() });
-      setSaving(false);
+      try {
+        await saveStory({ ...updated, updatedAt: Date.now() });
+      } catch (err) {
+        console.error('Failed to save story', err);
+      } finally {
+        setSaving(false);
+      }
     }, 600);
   }, []);
 

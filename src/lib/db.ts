@@ -1,87 +1,106 @@
-import { openDB, type IDBPDatabase } from 'idb';
 import { normalizeStory, type Story } from '../types/story';
 
-const DB_NAME = 'branch20';
-const DB_VERSION = 2;
+// Storage now lives in Cloudflare R2, fronted by the Pages Functions in
+// /functions/api. Stories are JSON objects; videos and images are blobs served
+// (with HTTP range support) straight from /api/blob/<key>. Reads are public;
+// writes require the shared editor password.
 
-let dbPromise: Promise<IDBPDatabase> | null = null;
+const PW_KEY = 'fe_editor_password';
 
-function getDB(): Promise<IDBPDatabase> {
-  if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('stories')) {
-          db.createObjectStore('stories', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('videos')) {
-          db.createObjectStore('videos');
-        }
-      },
-    });
-  }
-  return dbPromise;
+function storedPassword(): string | null {
+  try { return localStorage.getItem(PW_KEY); } catch { return null; }
 }
 
+function promptPassword(): string | null {
+  const pw = window.prompt('Enter the editor password to make changes:');
+  if (pw) {
+    try { localStorage.setItem(PW_KEY, pw); } catch { /* ignore */ }
+  }
+  return pw;
+}
+
+function clearPassword(): void {
+  try { localStorage.removeItem(PW_KEY); } catch { /* ignore */ }
+}
+
+/** Fetch for write endpoints: attaches the editor password and re-prompts once on 401. */
+async function writeFetch(url: string, init: RequestInit, body?: BodyInit, contentType?: string): Promise<Response> {
+  let pw = storedPassword() ?? promptPassword();
+  if (!pw) throw new Error('Editor password required.');
+
+  const send = (password: string) => {
+    const headers = new Headers(init.headers);
+    headers.set('x-app-password', password);
+    if (contentType) headers.set('content-type', contentType);
+    return fetch(url, { ...init, headers, body });
+  };
+
+  let res = await send(pw);
+  if (res.status === 401) {
+    clearPassword();
+    pw = promptPassword();
+    if (!pw) throw new Error('Editor password required.');
+    res = await send(pw);
+  }
+  if (!res.ok) throw new Error(`${init.method ?? 'Request'} ${url} failed: ${res.status}`);
+  return res;
+}
+
+// --- Stories ---
+
 export async function saveStory(story: Story): Promise<void> {
-  const db = await getDB();
-  await db.put('stories', story);
+  await writeFetch(
+    `/api/stories/${encodeURIComponent(story.id)}`,
+    { method: 'PUT' },
+    JSON.stringify(story),
+    'application/json',
+  );
 }
 
 export async function getStory(id: string): Promise<Story | undefined> {
-  const db = await getDB();
-  const raw = await db.get('stories', id);
-  return raw ? normalizeStory(raw) : undefined;
+  const res = await fetch(`/api/stories/${encodeURIComponent(id)}`);
+  if (res.status === 404) return undefined;
+  if (!res.ok) throw new Error(`Failed to load story: ${res.status}`);
+  return normalizeStory(await res.json());
 }
 
 export async function getAllStories(): Promise<Story[]> {
-  const db = await getDB();
-  const stories: unknown[] = await db.getAll('stories');
-  return stories.map(normalizeStory).sort((a, b) => b.updatedAt - a.updatedAt);
+  const res = await fetch('/api/stories');
+  if (!res.ok) throw new Error(`Failed to load stories: ${res.status}`);
+  const raw: unknown[] = await res.json();
+  return raw.map(normalizeStory).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function deleteStory(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('stories', id);
+  await writeFetch(`/api/stories/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+// --- Blobs (videos + images share one store) ---
+
 export async function saveVideo(key: string, blob: Blob): Promise<void> {
-  const db = await getDB();
-  await db.put('videos', blob, key);
+  await writeFetch(
+    `/api/blob/${encodeURIComponent(key)}`,
+    { method: 'PUT' },
+    blob,
+    blob.type || 'application/octet-stream',
+  );
 }
 
 export async function getVideoBlob(key: string): Promise<Blob | undefined> {
-  const db = await getDB();
-  return db.get('videos', key);
+  const res = await fetch(`/api/blob/${encodeURIComponent(key)}`);
+  if (!res.ok) return undefined;
+  return res.blob();
 }
 
 export async function deleteVideo(key: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('videos', key);
+  await writeFetch(`/api/blob/${encodeURIComponent(key)}`, { method: 'DELETE' });
 }
 
-export async function getVideoBlobUrl(key: string): Promise<string | null> {
-  const blob = await getVideoBlob(key);
-  if (!blob) return null;
-  return URL.createObjectURL(blob);
+/** A blob's URL is just its API endpoint — the browser streams it (with range support) directly. */
+export function getVideoBlobUrl(key: string): Promise<string> {
+  return Promise.resolve(`/api/blob/${encodeURIComponent(key)}`);
 }
 
-// Thumbnails (and any image blobs) live in the same blob store as videos.
 export const saveImage = saveVideo;
 export const deleteImage = deleteVideo;
 export const getImageUrl = getVideoBlobUrl;
-
-export async function getAllVideoKeys(): Promise<string[]> {
-  const db = await getDB();
-  const keys = await db.getAllKeys('videos');
-  return keys as string[];
-}
-
-export async function deleteOrphanVideos(usedKeys: Set<string>): Promise<void> {
-  const db = await getDB();
-  const allKeys = await db.getAllKeys('videos') as string[];
-  const tx = db.transaction('videos', 'readwrite');
-  await Promise.all(
-    allKeys.filter(k => !usedKeys.has(k)).map(k => tx.store.delete(k)),
-  );
-  await tx.done;
-}

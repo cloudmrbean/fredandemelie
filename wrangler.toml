@@ -1,0 +1,13 @@
+name = "fredandemelie"
+compatibility_date = "2026-06-01"
+pages_build_output_dir = "dist"
+
+# R2 bucket that holds story JSON + video/image blobs.
+# Cloudflare Pages reads this binding for both production and preview deploys.
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "fredandemelie-media"
+
+# Note: APP_PASSWORD is a secret and is NOT stored here. Set it with:
+#   wrangler pages secret put APP_PASSWORD
+# and, for local `wrangler pages dev`, in the gitignored .dev.vars file.
