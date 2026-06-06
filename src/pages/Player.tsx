@@ -5,6 +5,7 @@ import D20Canvas from '../components/D20Canvas';
 import {
   OUTCOME_ORDER,
   OUTCOMES,
+  formatTime,
   rollD20,
   rollForOutcomes,
   type Branch,
@@ -34,12 +35,24 @@ export default function Player() {
   const [branchSrc, setBranchSrc] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
+  // Playback controls
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [volume, setVolume] = useState(() => {
+    const v = Number(localStorage.getItem('fe_volume'));
+    return isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+  });
+  const [muted, setMuted] = useState(() => localStorage.getItem('fe_muted') === '1');
+  const [controlsVisible, setControlsVisible] = useState(true);
+
   const baseVideoRef = useRef<HTMLVideoElement>(null);
   const branchVideoRef = useRef<HTMLVideoElement>(null);
   const urlCache = useRef<Map<string, string>>(new Map());
   const nextPointIndex = useRef(0);
   const resumeAtRef = useRef(0);
   const pendingPlay = useRef(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const points = story?.branchPoints ?? [];
 
@@ -90,6 +103,8 @@ export default function Player() {
   }
 
   function onBaseTimeUpdate() {
+    const v0 = baseVideoRef.current;
+    if (v0) setCurrentTime(v0.currentTime);
     if (phase.type !== 'base') return;
     const i = nextPointIndex.current;
     if (i >= points.length) return;
@@ -182,11 +197,78 @@ export default function Player() {
     }
   }, [phase]);
 
+  // Keep both video elements in sync with the chosen volume, and persist it.
+  useEffect(() => {
+    for (const v of [baseVideoRef.current, branchVideoRef.current]) {
+      if (v) { v.volume = volume; v.muted = muted; }
+    }
+    try {
+      localStorage.setItem('fe_volume', String(volume));
+      localStorage.setItem('fe_muted', muted ? '1' : '0');
+    } catch { /* ignore */ }
+  }, [volume, muted, baseUrl, branchSrc, phase]);
+
+  function showControls() {
+    setControlsVisible(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (!paused) hideTimer.current = setTimeout(() => setControlsVisible(false), 3000);
+  }
+
+  // Pausing reveals the controls and keeps them up; playing starts the hide timer.
+  useEffect(() => {
+    if (paused) {
+      setControlsVisible(true);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    } else {
+      showControls();
+    }
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, [paused]);
+
+  function activeVideo(): HTMLVideoElement | null {
+    return phase.type === 'branch' ? branchVideoRef.current : baseVideoRef.current;
+  }
+
+  function togglePlay() {
+    const v = activeVideo();
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  }
+
+  function seekTo(time: number) {
+    if (phase.type === 'branch') return; // seeking the base mid-branch is meaningless
+    const v = baseVideoRef.current;
+    if (!v || !duration) return;
+    const t = Math.max(0, Math.min(duration, time));
+    v.currentTime = t;
+    setCurrentTime(t);
+    // Re-arm branch detection: next point is the first one after the new time.
+    nextPointIndex.current = points.filter(p => p.time <= t + 0.001).length;
+  }
+
+  function toggleMute() {
+    setMuted(m => {
+      const next = !m;
+      if (!next && volume === 0) setVolume(0.5);
+      return next;
+    });
+  }
+
+  function scrub(e: React.PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    seekTo(frac * (duration || story?.baseDuration || 0));
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === ' ' && (phase.type === 'result' || phase.type === 'rollOnlyResult')) {
+      if (e.key !== ' ') return;
+      if (phase.type === 'result' || phase.type === 'rollOnlyResult') {
         e.preventDefault();
         advance();
+      } else if (phase.type === 'base' || phase.type === 'branch') {
+        e.preventDefault();
+        togglePlay();
       }
     }
     window.addEventListener('keydown', onKey);
@@ -213,8 +295,16 @@ export default function Player() {
 
   const showBranch = phase.type === 'branch';
 
+  const total = duration || story?.baseDuration || 0;
+  const progressPct = total ? Math.min(100, (currentTime / total) * 100) : 0;
+  const showControlBar = phase.type === 'base' || phase.type === 'branch';
+
   return (
-    <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
+    <div
+      className="min-h-screen bg-black flex flex-col relative overflow-hidden"
+      onMouseMove={showControls}
+      onTouchStart={showControls}
+    >
       <button
         onClick={() => navigate('/')}
         className="absolute top-4 left-4 z-40 p-2 rounded-full bg-black/60 hover:bg-black/90 text-gray-400 hover:text-white transition-colors"
@@ -239,6 +329,9 @@ export default function Player() {
           src={baseUrl}
           playsInline
           onTimeUpdate={onBaseTimeUpdate}
+          onLoadedMetadata={e => setDuration(e.currentTarget.duration)}
+          onPlay={() => setPaused(false)}
+          onPause={() => setPaused(true)}
           onEnded={() => setPhase(prev => (prev.type === 'base' ? { type: 'end' } : prev))}
           className="w-full h-screen object-contain bg-black"
           style={{ display: showBranch ? 'none' : 'block' }}
@@ -252,6 +345,9 @@ export default function Player() {
           key={branchSrc}
           src={branchSrc}
           autoPlay
+          playsInline
+          onPlay={() => setPaused(false)}
+          onPause={() => setPaused(true)}
           onEnded={onBranchEnded}
           className="w-full h-screen object-contain bg-black"
         />
@@ -297,7 +393,88 @@ export default function Player() {
           onContinue={continueRoll}
         />
       )}
+
+      {/* Bottom progress bar + volume controls */}
+      {showControlBar && (
+        <div
+          className={`absolute bottom-0 inset-x-0 z-40 px-4 pb-4 pt-12 bg-gradient-to-t from-black/85 via-black/40 to-transparent transition-opacity duration-300 ${
+            controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          {/* Progress track */}
+          <div
+            className="relative h-1.5 rounded-full bg-white/20 cursor-pointer group/track mb-2.5"
+            onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); scrub(e); }}
+            onPointerMove={e => { if (e.buttons === 1) scrub(e); }}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-arcane-500"
+              style={{ width: `${progressPct}%` }}
+            />
+            {/* Branch-point markers */}
+            {total > 0 && points.map(p => (
+              <span
+                key={p.id}
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-gold-400/90"
+                style={{ left: `${Math.min(100, (p.time / total) * 100)}%` }}
+              />
+            ))}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow opacity-0 group-hover/track:opacity-100 transition-opacity"
+              style={{ left: `${progressPct}%` }}
+            />
+          </div>
+
+          {/* Controls row */}
+          <div className="flex items-center gap-2 text-white">
+            <button onClick={togglePlay} className="p-1.5 hover:text-arcane-300 transition-colors" aria-label={paused ? 'Play' : 'Pause'}>
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button onClick={toggleMute} className="p-1.5 hover:text-arcane-300 transition-colors" aria-label={muted ? 'Unmute' : 'Mute'}>
+              {muted || volume === 0 ? <MutedIcon /> : <VolumeIcon />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.02}
+              value={muted ? 0 : volume}
+              onChange={e => { const val = Number(e.target.value); setVolume(val); setMuted(val === 0); }}
+              className="w-20 sm:w-28 accent-arcane-500 cursor-pointer"
+              aria-label="Volume"
+            />
+            <span className="text-xs tabular-nums text-white/70 ml-auto">
+              {formatTime(currentTime)} / {formatTime(total)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ─── Player control icons ─────────────────────────────────────────────────────
+
+function PlayIcon() {
+  return <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>;
+}
+function PauseIcon() {
+  return <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>;
+}
+function VolumeIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M3 10v4h4l5 5V5L7 10H3z" />
+      <path d="M16 8.5a4 4 0 0 1 0 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function MutedIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M3 10v4h4l5 5V5L7 10H3z" />
+      <path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
