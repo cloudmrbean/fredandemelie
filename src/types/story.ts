@@ -97,12 +97,19 @@ export interface Branch {
   coverDuration: number;
 }
 
+// 'branch' → a d20 is rolled and its outcome selects a branch video.
+// 'roll'   → a d20 is rolled purely for flavor: it shows the number (1–20)
+//            and then the base video simply continues. No pass/fail, no branch.
+export type PointKind = 'branch' | 'roll';
+
 export interface BranchPoint {
   id: string;
+  kind: PointKind;
   time: number; // seconds into the base video
   label: string;
-  // A d20 is rolled here; the outcome selects a branch. An outcome with no
-  // branch means that roll simply continues the base video.
+  // A d20 is rolled here; for 'branch' points the outcome selects a branch.
+  // An outcome with no branch means that roll simply continues the base video.
+  // Ignored for 'roll' points.
   outcomes: Partial<Record<RollOutcome, Branch>>;
 }
 
@@ -146,7 +153,12 @@ export function normalizeStory(raw: unknown): Story {
   if (Array.isArray(s.branchPoints) && 'baseBlobKey' in s) {
     // Current shape — backfill fields added after this story was saved.
     const cur = raw as Story;
-    return { ...cur, author: cur.author ?? '', thumbnailKey: cur.thumbnailKey ?? null };
+    return {
+      ...cur,
+      author: cur.author ?? '',
+      thumbnailKey: cur.thumbnailKey ?? null,
+      branchPoints: (cur.branchPoints ?? []).map(p => ({ ...p, kind: p.kind ?? 'branch' })),
+    };
   }
   const legacy = raw as LegacyStory;
   const root = legacy.segments?.[legacy.rootSegmentId];

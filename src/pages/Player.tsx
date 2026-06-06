@@ -5,6 +5,7 @@ import D20Canvas from '../components/D20Canvas';
 import {
   OUTCOME_ORDER,
   OUTCOMES,
+  rollD20,
   rollForOutcomes,
   type Branch,
   type BranchPoint,
@@ -18,6 +19,8 @@ type Phase =
   | { type: 'base' }
   | { type: 'rolling'; pointIndex: number; roll: number }
   | { type: 'result'; pointIndex: number; roll: number; outcome: RollOutcome }
+  | { type: 'rollOnly'; pointIndex: number; roll: number }
+  | { type: 'rollOnlyResult'; pointIndex: number; roll: number }
   | { type: 'branch'; resumeAt: number }
   | { type: 'end' }
   | { type: 'error'; message: string };
@@ -92,6 +95,12 @@ export default function Player() {
     const point = points[i];
     const v = baseVideoRef.current;
     if (!v || v.currentTime < point.time) return;
+    if (point.kind === 'roll') {
+      // Flavor roll — just show a d20 number, then continue.
+      v.pause();
+      setPhase({ type: 'rollOnly', pointIndex: i, roll: rollD20() });
+      return;
+    }
     const defined = OUTCOME_ORDER.filter(o => point.outcomes[o]);
     if (defined.length === 0) { advancePast(point.time); return; } // no branches here — keep playing
     v.pause();
@@ -100,9 +109,11 @@ export default function Player() {
   }
 
   function onDiceComplete(roll: number, outcome: RollOutcome) {
-    setPhase(prev => (prev.type === 'rolling'
-      ? { type: 'result', pointIndex: prev.pointIndex, roll, outcome }
-      : prev));
+    setPhase(prev => {
+      if (prev.type === 'rolling') return { type: 'result', pointIndex: prev.pointIndex, roll, outcome };
+      if (prev.type === 'rollOnly') return { type: 'rollOnlyResult', pointIndex: prev.pointIndex, roll };
+      return prev;
+    });
   }
 
   async function onContinue() {
@@ -127,6 +138,20 @@ export default function Player() {
     setPhase({ type: 'branch', resumeAt: resumeAtRef.current });
   }
 
+  function continueRoll() {
+    if (phase.type !== 'rollOnlyResult') return;
+    const point = points[phase.pointIndex];
+    advancePast(point.time);
+    setPhase({ type: 'base' });
+    baseVideoRef.current?.play().catch(() => {});
+  }
+
+  // Dispatch the active "Continue" depending on the kind of roll showing.
+  function advance() {
+    if (phase.type === 'result') onContinue();
+    else if (phase.type === 'rollOnlyResult') continueRoll();
+  }
+
   function onBranchEnded() {
     if (phase.type !== 'branch') return;
     const resumeAt = resumeAtRef.current;
@@ -148,7 +173,10 @@ export default function Player() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === ' ' && phase.type === 'result') { e.preventDefault(); onContinue(); }
+      if (e.key === ' ' && (phase.type === 'result' || phase.type === 'rollOnlyResult')) {
+        e.preventDefault();
+        advance();
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -156,8 +184,8 @@ export default function Player() {
 
   // Auto-advance if the viewer doesn't click Continue.
   useEffect(() => {
-    if (phase.type !== 'result') return;
-    const t = setTimeout(() => onContinue(), 3000);
+    if (phase.type !== 'result' && phase.type !== 'rollOnlyResult') return;
+    const t = setTimeout(() => advance(), 3000);
     return () => clearTimeout(t);
   }, [phase]);
 
@@ -236,7 +264,7 @@ export default function Player() {
         </div>
       )}
 
-      {/* BG3-style dice overlay */}
+      {/* BG3-style dice overlay (branch points) */}
       {(phase.type === 'rolling' || phase.type === 'result') && story && (
         <BG3Overlay
           phase={phase.type}
@@ -245,6 +273,17 @@ export default function Player() {
           point={points[phase.pointIndex]}
           onDiceComplete={onDiceComplete}
           onContinue={onContinue}
+        />
+      )}
+
+      {/* Plain flavor-roll overlay (dice-roll points) */}
+      {(phase.type === 'rollOnly' || phase.type === 'rollOnlyResult') && story && (
+        <PlainRollOverlay
+          phase={phase.type}
+          roll={phase.roll}
+          label={points[phase.pointIndex]?.label}
+          onDiceComplete={onDiceComplete}
+          onContinue={continueRoll}
         />
       )}
     </div>
@@ -281,25 +320,13 @@ const OUTCOME_SHADOW: Record<RollOutcome, string> = {
   critSuccess: '#ca8a04',
 };
 
-function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }: BG3OverlayProps) {
+/** Shared gothic panel chrome used by both the branch overlay and the plain roll. */
+function RunePanel({ glowColor, children }: { glowColor?: string; children: React.ReactNode }) {
   const [panelVisible, setPanelVisible] = useState(false);
-  const [resultVisible, setResultVisible] = useState(false);
-
   useEffect(() => {
     const t = setTimeout(() => setPanelVisible(true), 40);
     return () => clearTimeout(t);
   }, []);
-
-  useEffect(() => {
-    if (phase === 'result') {
-      const t = setTimeout(() => setResultVisible(true), 100);
-      return () => clearTimeout(t);
-    } else {
-      setResultVisible(false);
-    }
-  }, [phase]);
-
-  const glowColor = outcome ? OUTCOME_SHADOW[outcome] : undefined;
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
@@ -312,7 +339,7 @@ function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }:
           opacity: panelVisible ? 1 : 0,
         }}
       >
-        {outcome && (
+        {glowColor && (
           <div
             className="absolute inset-0 rounded-2xl blur-2xl opacity-20 transition-colors duration-700 pointer-events-none"
             style={{ backgroundColor: glowColor }}
@@ -324,7 +351,7 @@ function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }:
           style={{
             background: 'linear-gradient(180deg, #0e0b1a 0%, #080612 50%, #0b0918 100%)',
             border: '1px solid rgba(180,140,40,0.35)',
-            boxShadow: outcome
+            boxShadow: glowColor
               ? `0 0 60px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,215,0,0.08), 0 0 30px ${glowColor}44`
               : '0 0 60px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,215,0,0.08)',
           }}
@@ -343,85 +370,7 @@ function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }:
             <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, rgba(180,140,40,0.5) 20%, transparent)' }} />
           </div>
 
-          <div className={`flex justify-center py-2 ${phase === 'rolling' ? 'animate-subtleShake' : ''}`}>
-            <D20Canvas
-              rolling={phase === 'rolling'}
-              finalRoll={roll}
-              onComplete={onDiceComplete}
-              size={300}
-            />
-          </div>
-
-          <div
-            className="transition-all duration-500 overflow-hidden"
-            style={{ maxHeight: resultVisible ? '120px' : '0px', opacity: resultVisible ? 1 : 0 }}
-          >
-            {outcome && (
-              <div className="text-center pb-2">
-                <p
-                  className={`text-6xl font-black tracking-tight leading-none mb-1.5 ${OUTCOME_GLOW_CLASS[outcome]}`}
-                  style={{
-                    fontFamily: 'Palatino Linotype, Palatino, serif',
-                    textShadow: `0 0 30px ${glowColor}cc, 0 0 60px ${glowColor}66`,
-                  }}
-                >
-                  {roll}
-                </p>
-                <p
-                  className={`text-sm font-semibold tracking-[0.2em] uppercase ${OUTCOME_GLOW_CLASS[outcome]}`}
-                  style={{ textShadow: `0 0 12px ${glowColor}88` }}
-                >
-                  {OUTCOMES[outcome].label}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="mx-6 my-3" style={{ height: 1, background: 'linear-gradient(90deg, transparent, rgba(160,120,40,0.4), transparent)' }} />
-
-          <div className="px-5 pb-4 grid grid-cols-4 gap-2">
-            {OUTCOME_ORDER.map(o => {
-              const branch = point?.outcomes[o];
-              const meta = OUTCOMES[o];
-              const isWinner = outcome === o;
-              const isDimmed = outcome !== null && !isWinner;
-
-              return (
-                <div
-                  key={o}
-                  className="rounded-lg p-2 text-center transition-all duration-500"
-                  style={{
-                    background: isWinner ? `${OUTCOME_SHADOW[o]}22` : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${isWinner ? OUTCOME_SHADOW[o] + '60' : 'rgba(255,255,255,0.06)'}`,
-                    opacity: isDimmed ? 0.35 : 1,
-                    boxShadow: isWinner ? `0 0 14px ${OUTCOME_SHADOW[o]}44` : 'none',
-                    transform: isWinner ? 'scale(1.04)' : 'scale(1)',
-                  }}
-                >
-                  <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${meta.color} ${isDimmed ? 'opacity-60' : ''}`}>
-                    {meta.label}
-                  </p>
-                  <p className="text-[9px] text-gray-600">{meta.range}</p>
-                  <p className="text-[9px] text-gray-500 mt-1 leading-tight truncate">
-                    {branch ? branch.label || (branch.type === 'replacement' ? 'Replacement' : 'Addition') : 'Continue'}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-
-          {outcome && resultVisible && (
-            <div className="px-6 pb-6 flex flex-col items-center gap-1.5 animate-fadeSlideUp">
-              <button
-                onClick={onContinue}
-                className={`px-8 py-2.5 rounded-xl text-sm font-semibold text-white border transition-all hover:scale-105 active:scale-95 ${OUTCOME_BTN_CLASS[outcome]}`}
-                style={{ boxShadow: `0 0 20px ${glowColor}44` }}
-              >
-                Continue
-              </button>
-              <span className="text-[10px] text-gray-700 tracking-wider">SPACE to advance</span>
-            </div>
-          )}
+          {children}
         </div>
       </div>
 
@@ -442,6 +391,180 @@ function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }:
         .animate-fadeSlideUp { animation: fadeSlideUp 0.4s ease-out forwards; }
       `}</style>
     </div>
+  );
+}
+
+function BG3Overlay({ phase, roll, outcome, point, onDiceComplete, onContinue }: BG3OverlayProps) {
+  const [resultVisible, setResultVisible] = useState(false);
+
+  useEffect(() => {
+    if (phase === 'result') {
+      const t = setTimeout(() => setResultVisible(true), 100);
+      return () => clearTimeout(t);
+    } else {
+      setResultVisible(false);
+    }
+  }, [phase]);
+
+  const glowColor = outcome ? OUTCOME_SHADOW[outcome] : undefined;
+
+  return (
+    <RunePanel glowColor={glowColor}>
+      <div className={`flex justify-center py-2 ${phase === 'rolling' ? 'animate-subtleShake' : ''}`}>
+        <D20Canvas
+          rolling={phase === 'rolling'}
+          finalRoll={roll}
+          onComplete={onDiceComplete}
+          size={300}
+        />
+      </div>
+
+      <div
+        className="transition-all duration-500 overflow-hidden"
+        style={{ maxHeight: resultVisible ? '120px' : '0px', opacity: resultVisible ? 1 : 0 }}
+      >
+        {outcome && (
+          <div className="text-center pb-2">
+            <p
+              className={`text-6xl font-black tracking-tight leading-none mb-1.5 ${OUTCOME_GLOW_CLASS[outcome]}`}
+              style={{
+                fontFamily: 'Palatino Linotype, Palatino, serif',
+                textShadow: `0 0 30px ${glowColor}cc, 0 0 60px ${glowColor}66`,
+              }}
+            >
+              {roll}
+            </p>
+            <p
+              className={`text-sm font-semibold tracking-[0.2em] uppercase ${OUTCOME_GLOW_CLASS[outcome]}`}
+              style={{ textShadow: `0 0 12px ${glowColor}88` }}
+            >
+              {OUTCOMES[outcome].label}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mx-6 my-3" style={{ height: 1, background: 'linear-gradient(90deg, transparent, rgba(160,120,40,0.4), transparent)' }} />
+
+      <div className="px-5 pb-4 grid grid-cols-4 gap-2">
+        {OUTCOME_ORDER.map(o => {
+          const branch = point?.outcomes[o];
+          const meta = OUTCOMES[o];
+          const isWinner = outcome === o;
+          const isDimmed = outcome !== null && !isWinner;
+
+          return (
+            <div
+              key={o}
+              className="rounded-lg p-2 text-center transition-all duration-500"
+              style={{
+                background: isWinner ? `${OUTCOME_SHADOW[o]}22` : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${isWinner ? OUTCOME_SHADOW[o] + '60' : 'rgba(255,255,255,0.06)'}`,
+                opacity: isDimmed ? 0.35 : 1,
+                boxShadow: isWinner ? `0 0 14px ${OUTCOME_SHADOW[o]}44` : 'none',
+                transform: isWinner ? 'scale(1.04)' : 'scale(1)',
+              }}
+            >
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${meta.color} ${isDimmed ? 'opacity-60' : ''}`}>
+                {meta.label}
+              </p>
+              <p className="text-[9px] text-gray-600">{meta.range}</p>
+              <p className="text-[9px] text-gray-500 mt-1 leading-tight truncate">
+                {branch ? branch.label || (branch.type === 'replacement' ? 'Replacement' : 'Addition') : 'Continue'}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {outcome && resultVisible && (
+        <div className="px-6 pb-6 flex flex-col items-center gap-1.5 animate-fadeSlideUp">
+          <button
+            onClick={onContinue}
+            className={`px-8 py-2.5 rounded-xl text-sm font-semibold text-white border transition-all hover:scale-105 active:scale-95 ${OUTCOME_BTN_CLASS[outcome]}`}
+            style={{ boxShadow: `0 0 20px ${glowColor}44` }}
+          >
+            Continue
+          </button>
+          <span className="text-[10px] text-gray-700 tracking-wider">SPACE to advance</span>
+        </div>
+      )}
+    </RunePanel>
+  );
+}
+
+// ─── Plain flavor-roll overlay ────────────────────────────────────────────────
+
+interface PlainRollOverlayProps {
+  phase: 'rollOnly' | 'rollOnlyResult';
+  roll: number;
+  label?: string;
+  onDiceComplete: (roll: number, outcome: RollOutcome) => void;
+  onContinue: () => void;
+}
+
+const ROLL_GOLD = '#d9b44a';
+
+function PlainRollOverlay({ phase, roll, label, onDiceComplete, onContinue }: PlainRollOverlayProps) {
+  const [resultVisible, setResultVisible] = useState(false);
+
+  useEffect(() => {
+    if (phase === 'rollOnlyResult') {
+      const t = setTimeout(() => setResultVisible(true), 100);
+      return () => clearTimeout(t);
+    } else {
+      setResultVisible(false);
+    }
+  }, [phase]);
+
+  return (
+    <RunePanel>
+      <div className={`flex justify-center py-2 ${phase === 'rollOnly' ? 'animate-subtleShake' : ''}`}>
+        <D20Canvas
+          rolling={phase === 'rollOnly'}
+          finalRoll={roll}
+          onComplete={onDiceComplete}
+          size={300}
+        />
+      </div>
+
+      <div
+        className="transition-all duration-500 overflow-hidden"
+        style={{ maxHeight: resultVisible ? '170px' : '0px', opacity: resultVisible ? 1 : 0 }}
+      >
+        <div className="text-center pb-2 px-6">
+          {label && (
+            <p className="text-sm italic text-gray-400 mb-1 font-display truncate">{label}</p>
+          )}
+          <p
+            className="text-7xl font-black tracking-tight leading-none mb-1"
+            style={{
+              color: ROLL_GOLD,
+              fontFamily: 'Palatino Linotype, Palatino, serif',
+              textShadow: `0 0 30px ${ROLL_GOLD}cc, 0 0 60px ${ROLL_GOLD}55`,
+            }}
+          >
+            {roll}
+          </p>
+          <p className="text-[11px] font-semibold tracking-[0.25em] uppercase text-gray-500">
+            You rolled a {roll} on a d20
+          </p>
+        </div>
+      </div>
+
+      {resultVisible && (
+        <div className="px-6 pb-6 pt-2 flex flex-col items-center gap-1.5 animate-fadeSlideUp">
+          <button
+            onClick={onContinue}
+            className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white border border-arcane-500 bg-arcane-700/90 hover:bg-arcane-600 transition-all hover:scale-105 active:scale-95"
+            style={{ boxShadow: `0 0 20px ${ROLL_GOLD}33` }}
+          >
+            Continue
+          </button>
+          <span className="text-[10px] text-gray-700 tracking-wider">SPACE to advance</span>
+        </div>
+      )}
+    </RunePanel>
   );
 }
 

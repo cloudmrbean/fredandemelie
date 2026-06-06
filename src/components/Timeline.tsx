@@ -169,8 +169,10 @@ export default function Timeline({
                 }`}
                 title={`${point.label} · ${formatTime(point.time)}`}
               >
-                <span className="font-medium">⬦ {point.label || 'Branch'}</span>
-                {filled.length > 0 && (
+                <span className="font-medium">
+                  {point.kind === 'roll' ? '🎲' : '⬦'} {point.label || (point.kind === 'roll' ? 'Roll' : 'Branch')}
+                </span>
+                {point.kind === 'branch' && filled.length > 0 && (
                   <span className="ml-1 inline-flex gap-0.5 align-middle">
                     {filled.map(o => (
                       <span
@@ -196,7 +198,7 @@ export default function Timeline({
       </div>
 
       <p className="mt-1.5 text-[11px] text-gray-600">
-        Click the track to add a branch point · drag a marker to move it · drag the ruler to scrub
+        Click the track to add a point (branch or dice roll) · drag a marker to move it · drag the ruler to scrub
       </p>
     </div>
   );

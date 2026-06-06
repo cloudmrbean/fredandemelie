@@ -130,6 +130,7 @@ export default function Creator() {
     updateStory(prev => {
       const point: BranchPoint = {
         id,
+        kind: 'branch',
         time,
         label: `Branch ${prev.branchPoints.length + 1}`,
         outcomes: {},
@@ -159,7 +160,7 @@ export default function Creator() {
     setSelectedPointId(prev => (prev === id ? null : prev));
   }
 
-  function patchPoint(id: string, patch: Partial<Pick<BranchPoint, 'label' | 'time'>>) {
+  function patchPoint(id: string, patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind'>>) {
     updateStory(prev => ({
       ...prev,
       branchPoints: sortPoints(prev.branchPoints.map(p => (p.id === id ? { ...p, ...patch } : p))),
@@ -354,7 +355,7 @@ interface BranchPointEditorProps {
   baseDuration: number;
   videoUrls: Record<string, string>;
   uploading: string | null;
-  onPatchPoint: (patch: Partial<Pick<BranchPoint, 'label' | 'time'>>) => void;
+  onPatchPoint: (patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind'>>) => void;
   onDeletePoint: () => void;
   onAddBranch: (outcome: RollOutcome) => void;
   onPatchBranch: (outcome: RollOutcome, patch: Partial<Branch>) => void;
@@ -406,6 +407,40 @@ function BranchPointEditor({
         </button>
       </div>
 
+      {/* Point kind */}
+      <div className="mb-4">
+        <label className="block text-[11px] text-gray-500 mb-1.5 font-medium uppercase tracking-wider">Type</label>
+        <div className="inline-flex rounded-lg border border-void-700 overflow-hidden">
+          {([
+            { k: 'branch', label: '⬦ Branch', hint: 'Roll selects a branch' },
+            { k: 'roll', label: '🎲 Dice roll', hint: 'Shows a number, no branch' },
+          ] as const).map(opt => (
+            <button
+              key={opt.k}
+              onClick={() => onPatchPoint({ kind: opt.k })}
+              title={opt.hint}
+              className={`px-4 py-2 text-xs transition-colors ${
+                point.kind === opt.k
+                  ? 'bg-arcane-700 text-white'
+                  : 'bg-void-800 text-gray-400 hover:text-arcane-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {point.kind === 'roll' ? (
+        <div className="rounded-xl border border-dashed border-void-700 bg-void-900/30 p-5 text-center">
+          <div className="text-2xl mb-1">🎲</div>
+          <p className="text-sm text-gray-300 mb-1">Flavor dice roll</p>
+          <p className="text-xs text-gray-500">
+            A d20 is rolled here and the result (1–20) is shown on screen, then the story simply continues. No pass/fail, no branch.
+          </p>
+        </div>
+      ) : (
+      <>
       <p className="text-xs text-gray-500 mb-3">
         A d20 is rolled here. Each outcome can hold a branch — empty outcomes simply continue the base video.
       </p>
@@ -505,6 +540,8 @@ function BranchPointEditor({
           );
         })}
       </div>
+      </>
+      )}
     </div>
   );
 }
