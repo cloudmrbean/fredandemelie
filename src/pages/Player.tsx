@@ -39,6 +39,7 @@ export default function Player() {
   const urlCache = useRef<Map<string, string>>(new Map());
   const nextPointIndex = useRef(0);
   const resumeAtRef = useRef(0);
+  const pendingPlay = useRef(false);
 
   const points = story?.branchPoints ?? [];
 
@@ -165,11 +166,21 @@ export default function Player() {
   }
 
   function replay() {
+    // The end screen unmounts the base <video>, so the ref is null here. Flag a
+    // pending play and let the effect below run it once the video remounts.
     nextPointIndex.current = 0;
-    const v = baseVideoRef.current;
-    if (v) { v.currentTime = 0; v.play().catch(() => {}); }
+    pendingPlay.current = true;
     setPhase({ type: 'base' });
   }
+
+  // Seek-to-start + play once the base video is (re)mounted after a replay.
+  useEffect(() => {
+    if (phase.type === 'base' && pendingPlay.current) {
+      pendingPlay.current = false;
+      const v = baseVideoRef.current;
+      if (v) { v.currentTime = 0; v.play().catch(() => {}); }
+    }
+  }, [phase]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
