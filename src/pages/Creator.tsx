@@ -160,7 +160,7 @@ export default function Creator() {
     setSelectedPointId(prev => (prev === id ? null : prev));
   }
 
-  function patchPoint(id: string, patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind'>>) {
+  function patchPoint(id: string, patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind' | 'riggedRoll'>>) {
     updateStory(prev => ({
       ...prev,
       branchPoints: sortPoints(prev.branchPoints.map(p => (p.id === id ? { ...p, ...patch } : p))),
@@ -355,7 +355,7 @@ interface BranchPointEditorProps {
   baseDuration: number;
   videoUrls: Record<string, string>;
   uploading: string | null;
-  onPatchPoint: (patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind'>>) => void;
+  onPatchPoint: (patch: Partial<Pick<BranchPoint, 'label' | 'time' | 'kind' | 'riggedRoll'>>) => void;
   onDeletePoint: () => void;
   onAddBranch: (outcome: RollOutcome) => void;
   onPatchBranch: (outcome: RollOutcome, patch: Partial<Branch>) => void;
@@ -432,12 +432,53 @@ function BranchPointEditor({
       </div>
 
       {point.kind === 'roll' ? (
-        <div className="rounded-xl border border-dashed border-void-700 bg-void-900/30 p-5 text-center">
-          <div className="text-2xl mb-1">🎲</div>
-          <p className="text-sm text-gray-300 mb-1">Flavor dice roll</p>
-          <p className="text-xs text-gray-500">
-            A d20 is rolled here and the result (1–20) is shown on screen, then the story simply continues. No pass/fail, no branch.
-          </p>
+        <div className="rounded-xl border border-dashed border-void-700 bg-void-900/30 p-5">
+          <div className="text-center mb-4">
+            <div className="text-2xl mb-1">🎲</div>
+            <p className="text-sm text-gray-300 mb-1">Flavor dice roll</p>
+            <p className="text-xs text-gray-500">
+              A d20 is rolled here and the result (1–20) is shown on screen, then the story simply continues. No pass/fail, no branch.
+            </p>
+          </div>
+
+          {/* Rig the result */}
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-3 border-t border-void-800">
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">Result</span>
+            <div className="inline-flex rounded-lg border border-void-700 overflow-hidden">
+              <button
+                onClick={() => onPatchPoint({ riggedRoll: null })}
+                className={`px-3 py-1.5 text-xs transition-colors ${
+                  point.riggedRoll == null ? 'bg-arcane-700 text-white' : 'bg-void-800 text-gray-400 hover:text-arcane-700'
+                }`}
+              >
+                Random
+              </button>
+              <button
+                onClick={() => onPatchPoint({ riggedRoll: point.riggedRoll ?? 20 })}
+                className={`px-3 py-1.5 text-xs transition-colors ${
+                  point.riggedRoll != null ? 'bg-arcane-700 text-white' : 'bg-void-800 text-gray-400 hover:text-arcane-700'
+                }`}
+              >
+                Rigged
+              </button>
+            </div>
+            {point.riggedRoll != null && (
+              <label className="flex items-center gap-2 text-xs text-gray-400">
+                always roll
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  step={1}
+                  value={point.riggedRoll}
+                  onChange={e => onPatchPoint({
+                    riggedRoll: Math.min(20, Math.max(1, Math.round(Number(e.target.value) || 1))),
+                  })}
+                  className="w-16 bg-void-800 border border-void-700 rounded-lg px-2.5 py-1.5 text-gray-200 focus:outline-none focus:border-arcane-500"
+                />
+              </label>
+            )}
+          </div>
         </div>
       ) : (
       <>

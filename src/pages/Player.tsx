@@ -112,9 +112,11 @@ export default function Player() {
     const v = baseVideoRef.current;
     if (!v || v.currentTime < point.time) return;
     if (point.kind === 'roll') {
-      // Flavor roll — just show a d20 number, then continue.
+      // Flavor roll — just show a d20 number, then continue. May be rigged.
       v.pause();
-      setPhase({ type: 'rollOnly', pointIndex: i, roll: rollD20() });
+      const rigged = point.riggedRoll;
+      const roll = rigged && rigged >= 1 && rigged <= 20 ? rigged : rollD20();
+      setPhase({ type: 'rollOnly', pointIndex: i, roll });
       return;
     }
     const defined = OUTCOME_ORDER.filter(o => point.outcomes[o]);

@@ -107,6 +107,9 @@ export interface BranchPoint {
   kind: PointKind;
   time: number; // seconds into the base video
   label: string;
+  // 'roll' points only: when set (1–20), the d20 always lands on this number
+  // instead of a random one. null/undefined → genuinely random.
+  riggedRoll?: number | null;
   // A d20 is rolled here; for 'branch' points the outcome selects a branch.
   // An outcome with no branch means that roll simply continues the base video.
   // Ignored for 'roll' points.
