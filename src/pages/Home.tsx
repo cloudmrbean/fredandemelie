@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { getAllStories, deleteStory, saveStory, saveImage, getImageUrl, deleteImage } from '../lib/db';
 import { importStory, exportStory, downloadJson } from '../lib/share';
+import { useUnlocked, unlock, lock } from '../lib/auth';
 import { countBranches, type Story } from '../types/story';
 
 export default function Home() {
   const navigate = useNavigate();
+  const unlocked = useUnlocked();
   const [stories, setStories] = useState<Story[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -126,6 +128,27 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-void-700/70 bg-void-900/40">
         <div className="max-w-5xl mx-auto px-6 py-7 text-center relative">
+          <div className="absolute top-4 right-4 sm:right-6">
+            {unlocked ? (
+              <button
+                onClick={lock}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-gold-600/50 bg-gold-500/10 text-gold-500 hover:bg-gold-500/20 transition-colors"
+                title="Lock editing"
+              >
+                <LockIcon open />
+                Editing on
+              </button>
+            ) : (
+              <button
+                onClick={() => { void unlock(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-void-600 text-gray-500 hover:text-arcane-700 hover:border-arcane-400 transition-colors"
+                title="Unlock editing"
+              >
+                <LockIcon />
+                Editor login
+              </button>
+            )}
+          </div>
           <MonogramIcon />
           <p className="mt-2 text-[11px] uppercase tracking-[0.4em] text-gold-600">The wedding of</p>
           <h1 className="font-display text-5xl sm:text-6xl font-medium text-arcane-800 leading-none mt-1">
@@ -135,22 +158,24 @@ export default function Home() {
             A collection of stories from the people who love them
           </p>
 
-          <div className="mt-5 flex items-center justify-center gap-3">
-            <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
-            <button
-              onClick={() => importRef.current?.click()}
-              disabled={importing}
-              className="px-4 py-2 rounded-full text-sm border border-void-600 hover:border-arcane-400 text-gray-400 hover:text-arcane-700 transition-colors disabled:opacity-50"
-            >
-              {importing ? 'Importing…' : 'Import a story'}
-            </button>
-            <button
-              onClick={createNew}
-              className="px-5 py-2 rounded-full text-sm bg-arcane-700 hover:bg-arcane-600 text-white font-medium transition-colors shadow-sm"
-            >
-              + Add your story
-            </button>
-          </div>
+          {unlocked && (
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+              <button
+                onClick={() => importRef.current?.click()}
+                disabled={importing}
+                className="px-4 py-2 rounded-full text-sm border border-void-600 hover:border-arcane-400 text-gray-400 hover:text-arcane-700 transition-colors disabled:opacity-50"
+              >
+                {importing ? 'Importing…' : 'Import a story'}
+              </button>
+              <button
+                onClick={createNew}
+                className="px-5 py-2 rounded-full text-sm bg-arcane-700 hover:bg-arcane-600 text-white font-medium transition-colors shadow-sm"
+              >
+                + Add your story
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -158,7 +183,7 @@ export default function Home() {
         {loading ? (
           <div className="flex items-center justify-center py-24 text-gray-500">Loading…</div>
         ) : stories.length === 0 ? (
-          <EmptyState onCreate={createNew} />
+          <EmptyState onCreate={createNew} unlocked={unlocked} />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {stories.map(story => (
@@ -168,6 +193,7 @@ export default function Home() {
                 thumb={thumbs[story.id]}
                 branches={countBranches(story)}
                 exporting={exporting === story.id}
+                unlocked={unlocked}
                 onPlay={() => navigate(`/play/${story.id}`)}
                 onEdit={() => navigate(`/create/${story.id}`)}
                 onExport={e => handleExport(story, e)}
@@ -187,6 +213,7 @@ interface StoryCardProps {
   thumb?: string;
   branches: number;
   exporting: boolean;
+  unlocked: boolean;
   onPlay: () => void;
   onEdit: () => void;
   onExport: (e: React.MouseEvent) => void;
@@ -194,7 +221,7 @@ interface StoryCardProps {
   onSetThumb: (e: React.MouseEvent) => void;
 }
 
-function StoryCard({ story, thumb, branches, exporting, onPlay, onEdit, onExport, onDelete, onSetThumb }: StoryCardProps) {
+function StoryCard({ story, thumb, branches, exporting, unlocked, onPlay, onEdit, onExport, onDelete, onSetThumb }: StoryCardProps) {
   return (
     <div className="group bg-void-800 border border-void-700 rounded-2xl overflow-hidden hover:border-arcane-400 hover:shadow-lg hover:shadow-arcane-200/50 transition-all duration-200 flex flex-col">
       {/* Thumbnail */}
@@ -207,12 +234,14 @@ function StoryCard({ story, thumb, branches, exporting, onPlay, onEdit, onExport
             <span className="mt-2 text-[11px] text-gray-500 tracking-wide">No photo yet</span>
           </div>
         )}
-        <button
-          onClick={onSetThumb}
-          className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full text-[11px] bg-void-950/85 backdrop-blur-sm border border-void-600 text-gray-400 hover:text-arcane-700 hover:border-arcane-400 transition-colors opacity-0 group-hover:opacity-100"
-        >
-          {thumb ? 'Change photo' : '+ Add photo'}
-        </button>
+        {unlocked && (
+          <button
+            onClick={onSetThumb}
+            className="absolute bottom-2 right-2 px-2.5 py-1 rounded-full text-[11px] bg-void-950/85 backdrop-blur-sm border border-void-600 text-gray-400 hover:text-arcane-700 hover:border-arcane-400 transition-colors opacity-0 group-hover:opacity-100"
+          >
+            {thumb ? 'Change photo' : '+ Add photo'}
+          </button>
+        )}
       </div>
 
       <div className="flex-1 p-5 cursor-pointer" onClick={onPlay}>
@@ -230,21 +259,25 @@ function StoryCard({ story, thumb, branches, exporting, onPlay, onEdit, onExport
         <button onClick={onPlay} className="flex-1 py-1.5 text-xs text-gray-500 hover:text-arcane-700 rounded-lg hover:bg-arcane-100 transition-colors">
           Watch
         </button>
-        <button onClick={onEdit} className="flex-1 py-1.5 text-xs text-gray-500 hover:text-arcane-700 rounded-lg hover:bg-arcane-100 transition-colors">
-          Edit
-        </button>
-        <button onClick={onExport} disabled={exporting} className="flex-1 py-1.5 text-xs text-gray-500 hover:text-arcane-700 rounded-lg hover:bg-arcane-100 transition-colors disabled:opacity-50">
-          {exporting ? '…' : 'Export'}
-        </button>
-        <button onClick={onDelete} className="flex-1 py-1.5 text-xs text-red-400/80 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
-          Delete
-        </button>
+        {unlocked && (
+          <>
+            <button onClick={onEdit} className="flex-1 py-1.5 text-xs text-gray-500 hover:text-arcane-700 rounded-lg hover:bg-arcane-100 transition-colors">
+              Edit
+            </button>
+            <button onClick={onExport} disabled={exporting} className="flex-1 py-1.5 text-xs text-gray-500 hover:text-arcane-700 rounded-lg hover:bg-arcane-100 transition-colors disabled:opacity-50">
+              {exporting ? '…' : 'Export'}
+            </button>
+            <button onClick={onDelete} className="flex-1 py-1.5 text-xs text-red-400/80 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
+              Delete
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState({ onCreate, unlocked }: { onCreate: () => void; unlocked: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="mb-6 text-gold-500/70">
@@ -254,13 +287,28 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <p className="text-gray-500 mb-6 max-w-sm">
         Share a memory, a toast, or a tale of Fred &amp; Emelie — every roll of fate reveals a different version.
       </p>
-      <button
-        onClick={onCreate}
-        className="px-6 py-3 bg-arcane-700 hover:bg-arcane-600 text-white rounded-full font-medium transition-colors shadow-sm"
-      >
-        Add the first story
-      </button>
+      {unlocked && (
+        <button
+          onClick={onCreate}
+          className="px-6 py-3 bg-arcane-700 hover:bg-arcane-600 text-white rounded-full font-medium transition-colors shadow-sm"
+        >
+          Add the first story
+        </button>
+      )}
     </div>
+  );
+}
+
+function LockIcon({ open = false }: { open?: boolean }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      {open ? (
+        <path strokeLinecap="round" d="M8 11V7a4 4 0 0 1 7.5-2" />
+      ) : (
+        <path strokeLinecap="round" d="M8 11V7a4 4 0 0 1 8 0v4" />
+      )}
+    </svg>
   );
 }
 

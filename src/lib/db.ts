@@ -1,46 +1,25 @@
 import { normalizeStory, type Story } from '../types/story';
+import { getPassword, lock } from './auth';
 
 // Storage now lives in Cloudflare R2, fronted by the Pages Functions in
 // /functions/api. Stories are JSON objects; videos and images are blobs served
 // (with HTTP range support) straight from /api/blob/<key>. Reads are public;
-// writes require the shared editor password.
+// writes require the shared editor password (see auth.ts — editing is unlocked
+// from the UI before any of these run).
 
-const PW_KEY = 'fe_editor_password';
-
-function storedPassword(): string | null {
-  try { return localStorage.getItem(PW_KEY); } catch { return null; }
-}
-
-function promptPassword(): string | null {
-  const pw = window.prompt('Enter the editor password to make changes:');
-  if (pw) {
-    try { localStorage.setItem(PW_KEY, pw); } catch { /* ignore */ }
-  }
-  return pw;
-}
-
-function clearPassword(): void {
-  try { localStorage.removeItem(PW_KEY); } catch { /* ignore */ }
-}
-
-/** Fetch for write endpoints: attaches the editor password and re-prompts once on 401. */
+/** Fetch for write endpoints: attaches the editor password set at unlock time. */
 async function writeFetch(url: string, init: RequestInit, body?: BodyInit, contentType?: string): Promise<Response> {
-  let pw = storedPassword() ?? promptPassword();
-  if (!pw) throw new Error('Editor password required.');
+  const pw = getPassword();
+  if (!pw) throw new Error('Editing is locked. Unlock editing first.');
 
-  const send = (password: string) => {
-    const headers = new Headers(init.headers);
-    headers.set('x-app-password', password);
-    if (contentType) headers.set('content-type', contentType);
-    return fetch(url, { ...init, headers, body });
-  };
+  const headers = new Headers(init.headers);
+  headers.set('x-app-password', pw);
+  if (contentType) headers.set('content-type', contentType);
 
-  let res = await send(pw);
+  const res = await fetch(url, { ...init, headers, body });
   if (res.status === 401) {
-    clearPassword();
-    pw = promptPassword();
-    if (!pw) throw new Error('Editor password required.');
-    res = await send(pw);
+    lock(); // password no longer valid — drop back to view-only
+    throw new Error('Editor password rejected.');
   }
   if (!res.ok) throw new Error(`${init.method ?? 'Request'} ${url} failed: ${res.status}`);
   return res;

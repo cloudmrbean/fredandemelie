@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { getStory, saveStory, saveVideo, getVideoBlobUrl, deleteVideo } from '../lib/db';
+import { useUnlocked } from '../lib/auth';
 import VideoUploader from '../components/VideoUploader';
 import Timeline from '../components/Timeline';
 import {
@@ -18,6 +19,7 @@ import {
 export default function Creator() {
   const { storyId } = useParams<{ storyId: string }>();
   const navigate = useNavigate();
+  const unlocked = useUnlocked();
 
   const [story, setStory] = useState<Story | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
@@ -27,6 +29,11 @@ export default function Creator() {
   const [currentTime, setCurrentTime] = useState(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const baseVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Editing is locked → send viewers back home (the editor is write-only).
+  useEffect(() => {
+    if (!unlocked) navigate('/');
+  }, [unlocked, navigate]);
 
   useEffect(() => {
     if (!storyId) return;
