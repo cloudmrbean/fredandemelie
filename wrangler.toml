@@ -8,6 +8,14 @@ pages_build_output_dir = "dist"
 binding = "BUCKET"
 bucket_name = "fredandemelie-media"
 
-# Note: APP_PASSWORD is a secret and is NOT stored here. Set it with:
-#   wrangler pages secret put APP_PASSWORD
-# and, for local `wrangler pages dev`, in the gitignored .dev.vars file.
+# Non-secret values used to presign direct-to-R2 uploads (large videos bypass
+# the ~100MB Functions body limit). The S3 endpoint is derived from these.
+[vars]
+R2_ACCOUNT_ID = "d85d451ccbd5a80690fb02ae78e219f7"
+R2_BUCKET_NAME = "fredandemelie-media"
+
+# Note: secrets are NOT stored here. Set them with `wrangler pages secret put`:
+#   APP_PASSWORD           – the shared editor password
+#   R2_ACCESS_KEY_ID       – from an R2 API token (Object Read & Write)
+#   R2_SECRET_ACCESS_KEY   – from the same R2 API token
+# For local `wrangler pages dev`, put them in the gitignored .dev.vars file.

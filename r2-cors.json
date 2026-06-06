@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://www.fredandemelie.com",
+          "https://fredandemelie.com",
+          "https://fredandemelie.pages.dev",
+          "https://*.fredandemelie.pages.dev",
+          "http://localhost:8788",
+          "http://localhost:8789",
+          "http://localhost:5173"
+        ],
+        "methods": ["PUT"],
+        "headers": ["*"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

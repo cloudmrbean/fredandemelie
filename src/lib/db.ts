@@ -78,12 +78,18 @@ export async function deleteStory(id: string): Promise<void> {
 // --- Blobs (videos + images share one store) ---
 
 export async function saveVideo(key: string, blob: Blob): Promise<void> {
-  await writeFetch(
-    `/api/blob/${encodeURIComponent(key)}`,
-    { method: 'PUT' },
-    blob,
-    blob.type || 'application/octet-stream',
-  );
+  // Ask our password-gated Function for a presigned URL, then upload the blob
+  // straight to R2. This bypasses the ~100MB request-body limit on Pages
+  // Functions, so large base videos upload fine.
+  const res = await writeFetch(`/api/upload-url/${encodeURIComponent(key)}`, { method: 'POST' });
+  const { url } = (await res.json()) as { url: string };
+
+  const put = await fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': blob.type || 'application/octet-stream' },
+    body: blob,
+  });
+  if (!put.ok) throw new Error(`Upload to storage failed: ${put.status}`);
 }
 
 export async function getVideoBlob(key: string): Promise<Blob | undefined> {

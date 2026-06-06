@@ -56,15 +56,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env, request })
   return new Response(object.body, { status: 200, headers });
 };
 
-export const onRequestPut: PagesFunction<Env> = async ({ params, env, request }) => {
-  const denied = unauthorized(request, env);
-  if (denied) return denied;
-
-  const key = params.key as string;
-  const contentType = request.headers.get('content-type') || 'application/octet-stream';
-  await env.BUCKET.put(key, request.body, { httpMetadata: { contentType } });
-  return new Response(null, { status: 204 });
-};
+// Note: uploads no longer go through here — the client uses presigned
+// direct-to-R2 URLs (see functions/api/upload-url) so large videos bypass the
+// Functions request-body limit. This route only serves and deletes blobs.
 
 export const onRequestDelete: PagesFunction<Env> = async ({ params, env, request }) => {
   const denied = unauthorized(request, env);
